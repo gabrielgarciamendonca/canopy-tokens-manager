@@ -23,6 +23,14 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS login_codes (
+        email TEXT PRIMARY KEY,
+        code_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        attempts INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS rooms (
         code TEXT PRIMARY KEY,
         host_id TEXT NOT NULL,

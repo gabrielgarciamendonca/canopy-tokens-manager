@@ -1,8 +1,8 @@
 import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
-import { LoginDto } from './dto/login.dto';
-import { RegisterDto } from './dto/register.dto';
+import { RequestCodeDto } from './dto/request-code.dto';
+import { VerifyCodeDto } from './dto/verify-code.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import type { PublicUser } from '../users/user';
 
@@ -10,14 +10,14 @@ import type { PublicUser } from '../users/user';
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
-  @Post('register')
-  register(@Body() body: RegisterDto) {
-    return this.auth.register(body.email, body.password);
+  @Post('request-code')
+  requestCode(@Body() body: RequestCodeDto) {
+    return this.auth.requestCode(body.email);
   }
 
-  @Post('login')
-  login(@Body() body: LoginDto) {
-    return this.auth.login(body.email, body.password);
+  @Post('verify')
+  verify(@Body() body: VerifyCodeDto) {
+    return this.auth.verifyCode(body.email, body.code);
   }
 
   @Get('me')

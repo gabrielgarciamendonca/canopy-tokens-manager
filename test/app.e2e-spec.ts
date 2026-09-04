@@ -2,6 +2,8 @@ process.env.JWT_SECRET = 'test-secret-at-least-32-characters-long';
 process.env.DATABASE_PATH = ':memory:';
 process.env.JWT_EXPIRES_IN = '1h';
 process.env.ROOM_TTL_SECONDS = '900';
+process.env.MAIL_DEV_RETURN_CODE = 'true';
+process.env.NODE_ENV = 'test';
 
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
@@ -45,17 +47,8 @@ describe('Canopy signaling (e2e)', () => {
   });
 
   it('exchanges offer/answer only for signed-in users', async () => {
-    const hostAuth = await request(app.getHttpServer())
-      .post('/v1/auth/register')
-      .send({ email: 'host@example.com', password: 'correct-horse' })
-      .expect(201);
-    const guestAuth = await request(app.getHttpServer())
-      .post('/v1/auth/register')
-      .send({ email: 'guest@example.com', password: 'correct-horse' })
-      .expect(201);
-
-    const hostToken = hostAuth.body.accessToken as string;
-    const guestToken = guestAuth.body.accessToken as string;
+    const hostToken = await signIn(app, 'host@example.com');
+    const guestToken = await signIn(app, 'guest@example.com');
     const offer = `offer-${'a'.repeat(40)}`;
     const answer = `answer-${'b'.repeat(40)}`;
 
@@ -92,3 +85,17 @@ describe('Canopy signaling (e2e)', () => {
     expect(hostAnswer.body.answer).toBe(answer);
   });
 });
+
+async function signIn(app: INestApplication<App>, email: string): Promise<string> {
+  const requested = await request(app.getHttpServer())
+    .post('/v1/auth/request-code')
+    .send({ email })
+    .expect(201);
+  expect(requested.body.devCode).toMatch(/^\d{6}$/);
+
+  const verified = await request(app.getHttpServer())
+    .post('/v1/auth/verify')
+    .send({ email, code: requested.body.devCode })
+    .expect(201);
+  return verified.body.accessToken as string;
+}

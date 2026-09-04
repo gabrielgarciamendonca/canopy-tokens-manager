@@ -4,7 +4,7 @@ API Nest mínima para **trocar invite tokens** (SDP/ICE). Não transporta vídeo
 
 Os blobs são dados de ligação da máquina. Por isso:
 
-- Toda a API de salas exige login (email + password → JWT)
+- Toda a API de salas exige login (email + código de 6 dígitos → JWT)
 - O offer/answer **não entra em logs**
 - `POST /v1/rooms` devolve só o código (`CN-XXXX-XXXX`), nunca o offer
 - Só o host lê o answer
@@ -16,7 +16,7 @@ O copy/paste no Discord continua a ser o fallback no cliente Canopy.
 
 ```powershell
 copy env.example .env
-# edita JWT_SECRET
+# edita JWT_SECRET e RESEND_API_KEY (ou SMTP_*)
 npm install
 npm run start:dev
 ```
@@ -26,12 +26,15 @@ npm run start:dev
 ## Auth
 
 ```
-POST /v1/auth/register   { "email": "a@b.com", "password": "at-least-8" }
-POST /v1/auth/login      { "email": "a@b.com", "password": "at-least-8" }
-GET  /v1/auth/me         Authorization: Bearer <jwt>
+POST /v1/auth/request-code  { "email": "a@b.com" }
+POST /v1/auth/verify        { "email": "a@b.com", "code": "123456" }
+GET  /v1/auth/me            Authorization: Bearer <jwt>
 ```
 
-Password: bcrypt (12 rounds). Email é a identidade; este serviço **não envia** correio (sem SMTP).
+O código vale 10 minutos. Sem password.
+
+No Railway: **Variables** → `JWT_SECRET`, `RESEND_API_KEY`, `MAIL_FROM`.
+Start command: `node dist/main.js` (o `npm run build` corre no deploy).
 
 ## Salas
 

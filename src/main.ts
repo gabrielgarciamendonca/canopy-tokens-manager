@@ -17,11 +17,15 @@ async function bootstrap() {
   app.enableCors({
     origin: process.env.CORS_ORIGIN?.split(',').map((item) => item.trim()) ?? true,
   });
-  app.getHttpAdapter().getInstance().disable('x-powered-by');
+  const http = app.getHttpAdapter().getInstance();
+  http.disable('x-powered-by');
+  http.get('/health', (_req: unknown, res: { json: (body: unknown) => void }) => {
+    res.json({ ok: true, service: 'canopy-signaling' });
+  });
 
   const port = Number(process.env.PORT ?? 3000);
-  await app.listen(port);
-  Logger.log(`Canopy signaling listening on http://127.0.0.1:${port}/v1`);
+  await app.listen(port, '0.0.0.0');
+  Logger.log(`Canopy signaling listening on 0.0.0.0:${port}`);
 }
 
 void bootstrap();
