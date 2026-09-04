@@ -1,0 +1,47 @@
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import Database from 'better-sqlite3';
+
+@Injectable()
+export class DatabaseService implements OnModuleInit, OnModuleDestroy {
+  private db!: Database.Database;
+
+  constructor(private readonly config: ConfigService) {}
+
+  onModuleInit() {
+    const path = this.config.get<string>('DATABASE_PATH') ?? 'signaling.sqlite';
+    this.db = new Database(path);
+    if (path !== ':memory:') {
+      this.db.pragma('journal_mode = WAL');
+    }
+    this.db.pragma('foreign_keys = ON');
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS rooms (
+        code TEXT PRIMARY KEY,
+        host_id TEXT NOT NULL,
+        guest_id TEXT,
+        offer TEXT NOT NULL,
+        answer TEXT,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        FOREIGN KEY (host_id) REFERENCES users(id),
+        FOREIGN KEY (guest_id) REFERENCES users(id)
+      );
+    `);
+  }
+
+  onModuleDestroy() {
+    this.db?.close();
+  }
+
+  get connection(): Database.Database {
+    return this.db;
+  }
+}
