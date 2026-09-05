@@ -23,7 +23,8 @@ async function bootstrap() {
     res.json({ ok: true, service: 'canopy-signaling' });
   });
 
-  const port = Number(process.env.PORT ?? 3000);
+  const parsed = Number(process.env.PORT);
+  const port = Number.isInteger(parsed) && parsed > 0 ? parsed : 8080;
   await app.listen(port, '0.0.0.0');
   Logger.log(`Canopy signaling listening on 0.0.0.0:${port}`);
 }

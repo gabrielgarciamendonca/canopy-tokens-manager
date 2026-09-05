@@ -1,5 +1,7 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
 
 @Injectable()
@@ -9,7 +11,11 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   constructor(private readonly config: ConfigService) {}
 
   onModuleInit() {
-    const path = this.config.get<string>('DATABASE_PATH') ?? 'signaling.sqlite';
+    const configured = this.config.get<string>('DATABASE_PATH') ?? process.env.DATABASE_PATH;
+    const path = resolveDatabasePath(configured);
+    if (path !== ':memory:') {
+      mkdirSync(dirname(path), { recursive: true });
+    }
     this.db = new Database(path);
     if (path !== ':memory:') {
       this.db.pragma('journal_mode = WAL');
@@ -52,4 +58,12 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
   get connection(): Database.Database {
     return this.db;
   }
+}
+
+function resolveDatabasePath(configured: string | undefined): string {
+  const raw = configured?.trim();
+  if (!raw || raw.includes('\\') || /^[A-Za-z]:/.test(raw)) {
+    return 'signaling.sqlite';
+  }
+  return raw;
 }
