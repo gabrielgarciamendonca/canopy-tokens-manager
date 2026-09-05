@@ -57,18 +57,13 @@ export class MailService {
 
   private resolveFrom(): string {
     const configured = this.config.get<string>('MAIL_FROM')?.trim();
-    if (configured && /onboarding@resend\.dev/i.test(configured)) {
-      return configured.includes('<') ? configured : `Canopy <${configured}>`;
+    if (!configured) {
+      throw new ServiceUnavailableException(
+        'Set MAIL_FROM on Railway to an address on your verified Resend domain, e.g. Canopy <login@your-domain.com>.',
+      );
     }
-    if (configured && !isConsumerMailbox(configured)) {
-      return configured.includes('<') ? configured : `Canopy <${configured}>`;
-    }
-    return 'Canopy <onboarding@resend.dev>';
+    return configured.includes('<') ? configured : `Canopy <${configured}>`;
   }
-}
-
-function isConsumerMailbox(from: string): boolean {
-  return /@(gmail|googlemail|hotmail|outlook|live|yahoo|icloud)\./i.test(from);
 }
 
 async function readResendMessage(response: Response): Promise<string> {
@@ -90,7 +85,7 @@ function mapResendError(status: number, detail: string): string {
     return 'Resend test mode can only send to the email of the Resend account. Use that inbox, or verify a domain.';
   }
   if (text.includes('domain is not verified') || text.includes('from')) {
-    return 'Set MAIL_FROM to Canopy <onboarding@resend.dev> until you verify a domain in Resend.';
+    return 'MAIL_FROM must be an address on your verified Resend domain.';
   }
   return detail || 'Could not send the sign-in email. Try again.';
 }

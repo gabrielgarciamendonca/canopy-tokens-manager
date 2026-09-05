@@ -33,7 +33,7 @@ GET  /v1/auth/me            Authorization: Bearer <jwt>
 
 O código vale 10 minutos. Sem password.
 
-No Railway: **Variables** → `JWT_SECRET`, `RESEND_API_KEY`, `MAIL_FROM`.
+No Railway: **Variables** → `JWT_SECRET`, `RESEND_API_KEY`, `MAIL_FROM` (endereço no domínio verificado no Resend, ex. `Canopy <login@teu-dominio.com>`).
 Start command: `node dist/main.js` (o `npm run build` corre no deploy).
 
 ## Salas
