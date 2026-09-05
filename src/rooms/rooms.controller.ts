@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { PublicUser } from '../users/user';
@@ -14,6 +14,16 @@ export class RoomsController {
   @Post()
   create(@CurrentUser() user: PublicUser, @Body() body: CreateRoomDto) {
     return this.rooms.create(user, body.offer);
+  }
+
+  @Delete()
+  removeMine(@CurrentUser() user: PublicUser) {
+    return this.rooms.removeMine(user);
+  }
+
+  @Delete(':code')
+  remove(@CurrentUser() user: PublicUser, @Param('code') code: string) {
+    return this.rooms.remove(code, user);
   }
 
   @Get(':code')

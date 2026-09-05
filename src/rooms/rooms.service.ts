@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomInt } from 'node:crypto';
 import { DatabaseService } from '../db/database.service';
 import type { PublicUser } from '../users/user';
+import { UsersService } from '../users/users.service';
 
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTVWXYZ';
 
@@ -27,6 +28,7 @@ export class RoomsService {
   constructor(
     private readonly database: DatabaseService,
     private readonly config: ConfigService,
+    private readonly users: UsersService,
   ) {}
 
   create(host: PublicUser, offer: string) {
@@ -85,15 +87,49 @@ export class RoomsService {
     };
   }
 
+  remove(code: string, requester: PublicUser) {
+    this.purgeExpired();
+    const room = this.database.connection
+      .prepare(
+        `SELECT code, host_id AS hostId, guest_id AS guestId, offer, answer,
+                created_at AS createdAt, expires_at AS expiresAt
+         FROM rooms WHERE code = ?`,
+      )
+      .get(normalizeCode(code)) as RoomRow | undefined;
+
+    if (!room) {
+      return { deleted: false };
+    }
+    if (room.hostId !== requester.id && room.guestId !== requester.id) {
+      throw new ForbiddenException('You cannot discard this room.');
+    }
+
+    this.database.connection.prepare('DELETE FROM rooms WHERE code = ?').run(room.code);
+    return { deleted: true };
+  }
+
+  removeMine(requester: PublicUser) {
+    this.purgeExpired();
+    const result = this.database.connection
+      .prepare('DELETE FROM rooms WHERE host_id = ? OR guest_id = ?')
+      .run(requester.id, requester.id);
+    return { deleted: Number(result.changes ?? 0) };
+  }
+
   getAnswer(code: string, requester: PublicUser) {
     const room = this.requireLive(code);
     if (room.hostId !== requester.id) {
       throw new ForbiddenException('Only the host can read the answer.');
     }
+    const guestEmail = room.guestId
+      ? this.users.findById(room.guestId)?.email ?? null
+      : null;
+
     if (!room.answer) {
       return {
         code: room.code,
         answer: null,
+        guestEmail: null,
         expiresAt: room.expiresAt,
       };
     }
@@ -101,6 +137,7 @@ export class RoomsService {
     return {
       code: room.code,
       answer: room.answer,
+      guestEmail,
       expiresAt: room.expiresAt,
     };
   }
