@@ -6,12 +6,23 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { DatabaseService } from '../db/database.service';
 import type { PublicUser } from '../users/user';
 import { UsersService } from '../users/users.service';
 
 const CODE_ALPHABET = '23456789ABCDEFGHJKMNPQRSTVWXYZ';
+const MAX_ROOM_MEMBERS = 10;
+const MAX_JOINS = MAX_ROOM_MEMBERS - 1;
+
+type JoinRow = {
+  id: string;
+  roomCode: string;
+  guestId: string;
+  offer: string;
+  answer: string | null;
+  createdAt: string;
+};
 
 type RoomRow = {
   code: string;
@@ -104,16 +115,136 @@ export class RoomsService {
       throw new ForbiddenException('You cannot discard this room.');
     }
 
+    this.deleteJoins(room.code);
     this.database.connection.prepare('DELETE FROM rooms WHERE code = ?').run(room.code);
     return { deleted: true };
   }
 
   removeMine(requester: PublicUser) {
     this.purgeExpired();
+    this.database.connection
+      .prepare(
+        `DELETE FROM room_joins WHERE room_code IN (
+           SELECT code FROM rooms WHERE host_id = ? OR guest_id = ?
+         )`,
+      )
+      .run(requester.id, requester.id);
     const result = this.database.connection
       .prepare('DELETE FROM rooms WHERE host_id = ? OR guest_id = ?')
       .run(requester.id, requester.id);
     return { deleted: Number(result.changes ?? 0) };
+  }
+
+  submitJoin(code: string, guest: PublicUser, offer: string) {
+    const room = this.requireLive(code);
+    if (room.hostId === guest.id) {
+      throw new ForbiddenException('The host cannot join their own room.');
+    }
+
+    const existing = this.database.connection
+      .prepare(
+        `SELECT id, room_code AS roomCode, guest_id AS guestId, offer, answer,
+                created_at AS createdAt
+         FROM room_joins WHERE room_code = ? AND guest_id = ?`,
+      )
+      .get(room.code, guest.id) as JoinRow | undefined;
+
+    if (existing?.answer) {
+      throw new ConflictException('You already joined this room.');
+    }
+
+    if (existing) {
+      this.database.connection
+        .prepare('UPDATE room_joins SET offer = ? WHERE id = ?')
+        .run(offer, existing.id);
+      return { id: existing.id, expiresAt: room.expiresAt };
+    }
+
+    const count = Number(
+      (
+        this.database.connection
+          .prepare('SELECT COUNT(*) AS n FROM room_joins WHERE room_code = ?')
+          .get(room.code) as { n: number }
+      ).n,
+    );
+    if (count >= MAX_JOINS) {
+      throw new ConflictException(`This room is full (${MAX_ROOM_MEMBERS} people).`);
+    }
+
+    const id = randomUUID();
+    this.database.connection
+      .prepare(
+        `INSERT INTO room_joins (id, room_code, guest_id, offer, answer, created_at)
+         VALUES (?, ?, ?, ?, NULL, ?)`,
+      )
+      .run(id, room.code, guest.id, offer, new Date().toISOString());
+
+    return { id, expiresAt: room.expiresAt };
+  }
+
+  listJoins(code: string, requester: PublicUser) {
+    const room = this.requireLive(code);
+    if (room.hostId !== requester.id) {
+      throw new ForbiddenException('Only the host can list joins.');
+    }
+
+    const rows = this.database.connection
+      .prepare(
+        `SELECT id, room_code AS roomCode, guest_id AS guestId, offer, answer,
+                created_at AS createdAt
+         FROM room_joins WHERE room_code = ? ORDER BY created_at ASC`,
+      )
+      .all(room.code) as JoinRow[];
+
+    return {
+      code: room.code,
+      expiresAt: room.expiresAt,
+      joins: rows.map((row) => ({
+        id: row.id,
+        guestEmail: this.users.findById(row.guestId)?.email ?? null,
+        hasAnswer: row.answer !== null,
+        createdAt: row.createdAt,
+        offer: row.answer ? null : row.offer,
+      })),
+    };
+  }
+
+  getJoin(code: string, joinId: string, requester: PublicUser) {
+    const room = this.requireLive(code);
+    const join = this.requireJoin(room.code, joinId);
+    if (room.hostId !== requester.id && join.guestId !== requester.id) {
+      throw new ForbiddenException('You cannot read this join.');
+    }
+
+    return {
+      id: join.id,
+      expiresAt: room.expiresAt,
+      hasAnswer: join.answer !== null,
+      offer: room.hostId === requester.id && !join.answer ? join.offer : null,
+      answer: join.guestId === requester.id || room.hostId === requester.id ? join.answer : null,
+    };
+  }
+
+  submitJoinAnswer(code: string, joinId: string, host: PublicUser, answer: string) {
+    const room = this.requireLive(code);
+    if (room.hostId !== host.id) {
+      throw new ForbiddenException('Only the host can answer a join.');
+    }
+
+    const join = this.requireJoin(room.code, joinId);
+    if (join.answer) {
+      throw new ConflictException('This join already has an answer.');
+    }
+
+    this.database.connection
+      .prepare('UPDATE room_joins SET answer = ? WHERE id = ?')
+      .run(answer, join.id);
+
+    return {
+      id: join.id,
+      expiresAt: room.expiresAt,
+      accepted: true,
+    };
   }
 
   getAnswer(code: string, requester: PublicUser) {
@@ -156,10 +287,29 @@ export class RoomsService {
       throw new NotFoundException('Room not found.');
     }
     if (Date.parse(room.expiresAt) <= Date.now()) {
+      this.deleteJoins(room.code);
       this.database.connection.prepare('DELETE FROM rooms WHERE code = ?').run(room.code);
       throw new GoneException('This room expired. Create a new invite.');
     }
     return room;
+  }
+
+  private requireJoin(roomCode: string, joinId: string): JoinRow {
+    const join = this.database.connection
+      .prepare(
+        `SELECT id, room_code AS roomCode, guest_id AS guestId, offer, answer,
+                created_at AS createdAt
+         FROM room_joins WHERE id = ? AND room_code = ?`,
+      )
+      .get(joinId, roomCode) as JoinRow | undefined;
+    if (!join) {
+      throw new NotFoundException('Join not found.');
+    }
+    return join;
+  }
+
+  private deleteJoins(roomCode: string) {
+    this.database.connection.prepare('DELETE FROM room_joins WHERE room_code = ?').run(roomCode);
   }
 
   private allocateCode(): string {
@@ -176,9 +326,15 @@ export class RoomsService {
   }
 
   private purgeExpired() {
+    const now = new Date().toISOString();
     this.database.connection
-      .prepare('DELETE FROM rooms WHERE expires_at <= ?')
-      .run(new Date().toISOString());
+      .prepare(
+        `DELETE FROM room_joins WHERE room_code IN (
+           SELECT code FROM rooms WHERE expires_at <= ?
+         )`,
+      )
+      .run(now);
+    this.database.connection.prepare('DELETE FROM rooms WHERE expires_at <= ?').run(now);
   }
 }
 

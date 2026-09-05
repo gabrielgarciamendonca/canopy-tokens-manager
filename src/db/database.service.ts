@@ -48,6 +48,19 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         FOREIGN KEY (host_id) REFERENCES users(id),
         FOREIGN KEY (guest_id) REFERENCES users(id)
       );
+
+      CREATE TABLE IF NOT EXISTS room_joins (
+        id TEXT PRIMARY KEY,
+        room_code TEXT NOT NULL,
+        guest_id TEXT NOT NULL,
+        offer TEXT NOT NULL,
+        answer TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (room_code) REFERENCES rooms(code) ON DELETE CASCADE,
+        FOREIGN KEY (guest_id) REFERENCES users(id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_room_joins_code ON room_joins(room_code);
     `);
   }
 
