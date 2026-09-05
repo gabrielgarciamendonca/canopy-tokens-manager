@@ -28,4 +28,8 @@ async function bootstrap() {
   Logger.log(`Canopy signaling listening on 0.0.0.0:${port}`);
 }
 
-void bootstrap();
+void bootstrap().catch((error: unknown) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  console.error('Canopy signaling failed to boot:', message);
+  process.exit(1);
+});
